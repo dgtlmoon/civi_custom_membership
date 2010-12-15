@@ -1,0 +1,29 @@
+--- civicrm.working/templates/CRM/Contribute/Form/Contribution/MembershipBlock.tpl	2010-07-29 04:44:12.000000000 +1000
++++ civicrm/templates/CRM/Contribute/Form/Contribution/MembershipBlock.tpl	2010-12-15 21:29:16.000000000 +1100
+@@ -66,7 +66,6 @@
+             {/if}
+         </div>
+     {/if}
+-   
+     {strip}
+         <table id="membership-listings">
+         {foreach from=$membershipTypes item=row }
+@@ -111,7 +110,17 @@
+             </tr> 
+             {/if}
+         {/if}          
+-        </table>
++        {if $form.membershipPriceSet}
++          <tr class="odd-row">
++              <td style="width: auto;"><span class="bold">Select membership payment that is best suited</span> <br />
++              <span id="membershipPriceSet">
++                {$form.membershipPriceSet.html}
++              </span>
++              </td>
++              <td></td>      
++          </tr>            
++        {/if}
++      </table>        
+     {/strip}
+     {if $context EQ "makeContribution"}
+         </fieldset>

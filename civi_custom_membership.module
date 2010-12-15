@@ -1,0 +1,159 @@
+<?php
+
+/**
+ * Tricky CiviCRM membership price settings
+ * - Depending on the date offer different price sets for the membership
+ * - Always ensure their membership expires on June 30th of the next year
+ * 
+ */
+
+
+
+/**
+ * Return an array of configurations
+ * 
+ * @return multitype:number
+ */
+function _membershippriceset_config() {
+  
+  $config = array();
+  
+  $config[]=array('contribution_form_id'=> 2, // the contribution form/page id
+                  'membership_type_id_to_force_end_date' => 1, // membership type that we will set an End Date
+                  'membership_priceSet_id_july_to_december' => 1, // depending on the date use this
+                  'membership_priceSet_id_january_to_june' => 2); // or depending on the date use this
+  
+  return $config;
+}
+
+/**
+ * Render a price set radio set into the form array for the template
+ * @param unknown_type $form
+ * @param unknown_type $priceSetId
+ */
+function _membershippriceset_set_priceset(&$form, $priceSetId) {
+  $module_path = drupal_get_path('module', 'civicrm');
+  require_once $module_path.'/../CRM/Price/BAO/Set.php';
+  $priceSetBAO = new CRM_Price_BAO_Set( );
+  $priceSet = $priceSetBAO->getSetDetail($priceSetId);
+  
+  $elementName="membershipPriceSet";
+
+  foreach(reset(reset($priceSet)) as $set) {
+    foreach($set['options'] as $opt) {
+      $label =  CRM_Utils_Money::format($opt['value']).' - '. $opt['label'];
+      
+      $choice[] = $form->createElement('radio', null, '', $label, $opt['id'],
+                                   array('price' => json_encode( array( $elementName, $opt['value'] ) ) )
+                                  );
+    }
+  }
+  $element =& $form->addGroup($choice, $elementName, $set['label']);
+  $form->addGroupRule($elementName, ts( 'Select a Membership price is required' ) , 'required', null, 1 );                             
+  
+}
+
+/**
+ * Work out which price set configuration to return depending on the date
+ */
+function _membershippriceset_set_priceset_get_type() {
+ $month = date("m");
+ // we use one priceset from 7->12
+ // and another from 1->6
+ if($month >= 1 && $month <= 6) {
+   return 'membership_priceSet_id_january_to_june';  
+ } elseif($month >= 7 && $month <= 12) {
+   return 'membership_priceSet_id_july_to_december';   
+ }
+}
+
+/**
+ * Implement hook_civicrm_buildForm to alter the contribution main form
+ * @param unknown_type $formName
+ * @param unknown_type $form
+ */
+function civi_custom_membership_civicrm_buildForm($formName, &$form) {
+   // CRM_Contribute_Form_Contribution_Main is the contribution page form.
+  if ($formName == 'CRM_Contribute_Form_Contribution_Main') {
+    foreach(_membershippriceset_config() as $config) {
+      if($form->_id == $config['contribution_form_id']) {
+       _membershippriceset_set_priceset($form, $config[_membershippriceset_set_priceset_get_type()]);
+      }
+    }
+  }     
+}
+
+/**
+ * Once the form is submitted, set the membership value before it gets processed
+ * @param unknown_type $form
+ * @param unknown_type $membershipTypeValues
+ */
+function civi_custom_membership_civicrm_membershipTypeValues( &$form, &$membershipTypeValues ) {
+
+  $module_path = drupal_get_path('module', 'civicrm');
+  require_once $module_path.'/../CRM/Price/BAO/Set.php';
+  $priceSetBAO = new CRM_Price_BAO_Set( );
+  
+    foreach(_membershippriceset_config() as $config) {
+      if($form->_id == $config['contribution_form_id']) {  
+        $priceSet = $priceSetBAO->getSetDetail($config[_membershippriceset_set_priceset_get_type()]);
+        
+        // find the option ID of this value
+        foreach(reset(reset($priceSet)) as $set) {
+          foreach($set['options'] as $key=>$opt) {
+            if($key == $form->_params['membershipPriceSet']) {
+              $membershipTypeValues[1]['name']        = $opt['description'];
+              $membershipTypeValues[1]['minimum_fee'] = $opt['value'];        
+            }
+          }
+        }
+      }    
+    }
+}
+
+/*
+ * Use the civicrm_pre hook to manipulate the end_date of their membership
+ * should they already have a membership
+ */
+function civi_custom_membership_civicrm_pre( $op, $objectName, $objectId, &$objectRef ) {
+
+   
+  $module_path = drupal_get_path('module', 'civicrm');
+  require_once $module_path.'/../api/v2/Membership.php';
+  
+  if($op == 'create' && $objectName = 'Membership' && is_array($objectRef)) {
+
+    // see if this membership contribution is something we care about tweaking
+    foreach(_membershippriceset_config() as $config) {
+      $force_end_date = true;
+      if($objectRef['contribution_page_id'] == $config['contribution_form_id']) {
+
+        // see if they are already a member, if not, then force a end date        
+        $membership = civicrm_membership_contact_get($objectRef['contact_id']);
+        if($membership) {
+          if($membership['record_count']>0 ) {
+             foreach(reset(reset($membership)) as $membership_record) {
+               // see if this membership type is something we care about
+               if($membership_record['membership_type_id'] == $config['membership_type_id_to_force_end_date']) {
+                 // ok so its a membership type we want to tweak, but check if its current, if it is, then we dont tweak
+                 if($membership_record['status_id']==1) {
+                   $force_end_date=false;
+                 }
+               }               
+             }
+          }
+        }    
+      }
+      if($objectRef['end_date']) {
+        if($force_end_date) {
+          // new memberships always expire on the next financial year
+          $next_year=date("Y")+1;
+          $objectRef['end_date']=$next_year."0630";
+        }
+      }
+    }
+  }
+
+}
+
+ 

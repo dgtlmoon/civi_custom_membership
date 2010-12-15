@@ -1,0 +1,6 @@
+name = Civi Custom Membership
+description = Force a single membership to accept different priceSets depending on the date and a forced End Date for memberships
+package = CiviCRM
+core = 6.x
+version = 1.0
+dependencies[] = civicrm
